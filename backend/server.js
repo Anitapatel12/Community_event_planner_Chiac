@@ -2,13 +2,16 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 
-// Import DB connection (this will auto-connect & log success/error)
-const db = require("./config/db");
-
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors(
+  {
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    methods: "GET,POST,PUT,DELETE",
+    allowedHeaders: "Content-Type,Authorization", 
+  }
+)); // add CORS middleware to allow cross-origin requests from the frontend
 app.use(express.json());
 
 // Import Routes
