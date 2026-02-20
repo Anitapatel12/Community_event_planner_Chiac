@@ -23,9 +23,51 @@ const eventSchema = zod.object({
   categoryId: zod.number().optional(),
 });
 
+// GET /api/events - List all events with optional search and filters
+router.get("/", async (req, res) => {
+  try {
+    const { categoryId, date, search } = req.query;
+    let filter = {};
 
-router.get("/", (req, res) => {
-  res.send("Events route working 🚀");
+    // Filter by Category
+    if (categoryId) {
+      filter.categoryId = parseInt(categoryId);
+    }
+
+    // Filter by Date
+    if (date) {
+      filter.eventDate = new Date(date);
+    }
+
+    // Search by Title or Description
+    if (search) {
+      filter.OR = [
+        { title: { contains: search, mode: "insensitive" } },
+        { description: { contains: search, mode: "insensitive" } },
+      ];
+    }
+
+    const events = await prisma.event.findMany({
+      where: filter,
+      include: {
+        category: true, // Includes category details if they exist
+        creator: {
+          select: { id: true, name: true, email: true }, // Include creator details
+        },
+      },
+      orderBy: {
+        eventDate: 'asc', // Show upcoming events first
+      }
+    });
+
+    res.status(200).json({
+      message: "Events fetched successfully",
+      data: events,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Something went wrong while fetching events" });
+  }
 });
 
 router.post("/create", async (req, res) => {
@@ -146,5 +188,41 @@ router.delete("/deleteEvent", async (req, res) => {
     res.status(500).json({ error: "Something went wrong" });
   } });
 
+// GET /api/events/:id/attendees - View attendee list for a specific event
+router.get("/:id/attendees", async (req, res) => {
+  try {
+    const eventId = parseInt(req.params.id);
+
+    if (isNaN(eventId)) {
+      return res.status(400).json({ error: "Invalid Event ID" });
+    }
+
+    // Find all registrations for this event and include the user details
+    const attendees = await prisma.registration.findMany({
+      where: { eventId: eventId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    // Map through the registrations to just return the user objects
+    const attendeeList = attendees.map(registration => registration.user);
+
+    res.status(200).json({
+      message: "Attendees fetched successfully",
+      data: attendeeList,
+      totalAttendees: attendeeList.length
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Something went wrong while fetching attendees" });
+  }
+});
 
 module.exports = router;
