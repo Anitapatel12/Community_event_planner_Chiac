@@ -8,7 +8,6 @@ function EditEvent({
   currentUser,
   currentUserId,
   userRole,
-  apiConnected,
   refreshEvents,
   showToast,
 }) {
@@ -86,11 +85,6 @@ function EditEvent({
 
     const normalizedMaxAttendees =
       formData.maxAttendees === "" ? "" : Number(formData.maxAttendees);
-
-    if (!apiConnected) {
-      showToast?.("Backend is unavailable. Event editing is disabled.", "error");
-      return;
-    }
 
     if (!currentUserId) {
       showToast?.("Unable to identify current user for event update", "error");

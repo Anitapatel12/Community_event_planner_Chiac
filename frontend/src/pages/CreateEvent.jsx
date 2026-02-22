@@ -6,7 +6,6 @@ import { createEventInApi } from "../services/eventsApi";
 function CreateEvent({
   currentUserId,
   userRole,
-  apiConnected,
   refreshEvents,
   showToast,
 }) {
@@ -68,11 +67,6 @@ function CreateEvent({
 
     const normalizedMaxAttendees =
       formData.maxAttendees === "" ? "" : Number(formData.maxAttendees);
-
-    if (!apiConnected) {
-      showToast?.("Backend is unavailable. Event creation is disabled.", "error");
-      return;
-    }
 
     if (!currentUserId) {
       showToast?.("Unable to identify current user for event creation", "error");

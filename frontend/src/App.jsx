@@ -9,7 +9,6 @@ import Navbar from "./components/Navbar";
 import Toast from "./components/Toast";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
-import { detectBackendStatus } from "./services/backendCompatibility";
 import { fetchEventsFromApi } from "./services/eventsApi";
 
 const AUTH_STORAGE_KEY = "eventhub_auth_session";
@@ -22,10 +21,20 @@ function loadAuthSession() {
     }
 
     const parsed = JSON.parse(raw);
+    const isLoggedIn = Boolean(parsed?.isLoggedIn);
+    const parsedUserId = Number(parsed?.currentUserId);
+    const currentUserId =
+      Number.isInteger(parsedUserId) && parsedUserId > 0 ? parsedUserId : null;
+
+    // Legacy sessions without a numeric user id cannot perform backend mutations.
+    if (isLoggedIn && !currentUserId) {
+      return { isLoggedIn: false, currentUser: null, currentUserId: null, userRole: null };
+    }
+
     return {
-      isLoggedIn: Boolean(parsed?.isLoggedIn),
+      isLoggedIn,
       currentUser: parsed?.currentUser || null,
-      currentUserId: parsed?.currentUserId ?? null,
+      currentUserId,
       userRole: parsed?.userRole || null,
     };
   } catch {
@@ -62,7 +71,6 @@ function App() {
   const [currentUser, setCurrentUser] = useState(initialAuth.currentUser);
   const [currentUserId, setCurrentUserId] = useState(initialAuth.currentUserId);
   const [userRole, setUserRole] = useState(initialAuth.userRole);
-  const [apiConnected, setApiConnected] = useState(false);
   const [toast, setToast] = useState(null);
 
   const showToast = useCallback((message, type = "success") => {
@@ -114,30 +122,30 @@ function App() {
     backendCheckStartedRef.current = true;
 
     let active = true;
+    let hasShownBackendWarning = false;
 
-    const checkBackend = async () => {
-      const status = await detectBackendStatus();
+    const syncEvents = async () => {
+      const loaded = await refreshEvents();
       if (!active) return;
 
-      if (!status.connected) {
-        setApiConnected(false);
+      if (!loaded) {
         setEvents([]);
-        showToast("Backend not reachable. Event data is unavailable.", "warning");
+        if (!hasShownBackendWarning) {
+          hasShownBackendWarning = true;
+          showToast("Backend not reachable. Start backend and refresh.", "warning");
+        }
         return;
       }
 
-      setApiConnected(true);
-
-      const loaded = await refreshEvents();
-      if (!loaded) {
-        setEvents([]);
-        showToast("Backend connected, but events sync failed.", "warning");
-      }
+      hasShownBackendWarning = false;
     };
 
-    checkBackend();
+    syncEvents();
+    const intervalId = setInterval(syncEvents, 10000);
+
     return () => {
       active = false;
+      clearInterval(intervalId);
     };
   }, [refreshEvents, showToast]);
 
@@ -150,9 +158,7 @@ function App() {
     setCurrentUser(resolvedUsername);
     setCurrentUserId(user?.id ?? null);
     setUserRole(resolvedRole);
-    if (apiConnected) {
-      refreshEvents();
-    }
+    refreshEvents();
     showToast(`Welcome, ${resolvedUsername}!`, "success");
   };
 
@@ -214,7 +220,6 @@ function App() {
                     currentUser={currentUser}
                     currentUserId={currentUserId}
                     userRole={userRole}
-                    apiConnected={apiConnected}
                     refreshEvents={refreshEvents}
                     showToast={showToast}
                   />
@@ -230,7 +235,6 @@ function App() {
                   <CreateEvent
                     currentUserId={currentUserId}
                     userRole={userRole}
-                    apiConnected={apiConnected}
                     refreshEvents={refreshEvents}
                     showToast={showToast}
                   />
@@ -246,7 +250,6 @@ function App() {
                     currentUser={currentUser}
                     currentUserId={currentUserId}
                     userRole={userRole}
-                    apiConnected={apiConnected}
                     refreshEvents={refreshEvents}
                     showToast={showToast}
                   />

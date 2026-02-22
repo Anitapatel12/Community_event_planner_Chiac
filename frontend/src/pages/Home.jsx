@@ -9,7 +9,6 @@ function Home({
   currentUser,
   currentUserId,
   userRole,
-  apiConnected,
   refreshEvents,
   showToast,
 }) {
@@ -26,11 +25,6 @@ function Home({
 
     if (!currentUser || !currentUserId) {
       showToast?.("Please log in to RSVP", "error");
-      return;
-    }
-
-    if (!apiConnected) {
-      showToast?.("Backend is unavailable. RSVP is disabled.", "error");
       return;
     }
 
@@ -65,12 +59,6 @@ function Home({
 
     if (!canDelete) {
       showToast?.("You don't have permission to delete this event", "error");
-      setDeleteModal({ isOpen: false, eventId: null });
-      return;
-    }
-
-    if (!apiConnected) {
-      showToast?.("Backend is unavailable. Delete is disabled.", "error");
       setDeleteModal({ isOpen: false, eventId: null });
       return;
     }
@@ -120,27 +108,14 @@ function Home({
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h2 className="text-3xl font-bold gradient-text">All Events</h2>
 
-        {apiConnected ? (
-          <Link to="/create">
-            <button className="btn-gradient px-6 py-2.5 rounded-lg font-medium transition-all shadow-md flex items-center space-x-2">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              <span>Create Event</span>
-            </button>
-          </Link>
-        ) : (
-          <button
-            className="px-6 py-2.5 rounded-lg font-medium border border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed flex items-center space-x-2"
-            disabled
-            title="Backend unavailable"
-          >
+        <Link to="/create">
+          <button className="btn-gradient px-6 py-2.5 rounded-lg font-medium transition-all shadow-md flex items-center space-x-2">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
             <span>Create Event</span>
           </button>
-        )}
+        </Link>
       </div>
 
       <div className="surface-card gradient-border soft-gradient-panel rounded-2xl shadow-md p-4 mb-6">
@@ -200,21 +175,13 @@ function Home({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
           </div>
-          <h3 className="text-xl font-semibold text-slate-700 mb-2">
-            {apiConnected ? "No events yet" : "Backend unavailable"}
-          </h3>
-          <p className="text-slate-500 mb-4">
-            {apiConnected
-              ? "Create your first event to get started!"
-              : "Unable to load events. Start backend and refresh this page."}
-          </p>
-          {apiConnected ? (
-            <Link to="/create">
-              <button className="btn-gradient px-6 py-2.5 rounded-lg font-medium transition-all">
-                Create Event
-              </button>
-            </Link>
-          ) : null}
+          <h3 className="text-xl font-semibold text-slate-700 mb-2">No events yet</h3>
+          <p className="text-slate-500 mb-4">Create your first event to get started!</p>
+          <Link to="/create">
+            <button className="btn-gradient px-6 py-2.5 rounded-lg font-medium transition-all">
+              Create Event
+            </button>
+          </Link>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
