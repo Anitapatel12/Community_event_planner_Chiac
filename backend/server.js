@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const prisma = require("./pool");
 
 // Always load backend/.env even when server is started from repository root.
 require("dotenv").config({ path: path.resolve(__dirname, ".env") });
@@ -9,8 +10,8 @@ const app = express();
 const frontendOrigin = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
 
 // Middleware
-app.use(cors(
-  {
+app.use(
+  cors({
     origin(origin, callback) {
       const normalizedOrigin = origin ? origin.replace(/\/$/, "") : "";
       const isLocalhostOrigin =
@@ -21,12 +22,13 @@ app.use(cors(
         callback(null, true);
         return;
       }
+
       callback(new Error(`Not allowed by CORS: ${origin}`));
     },
     methods: "GET,POST,PUT,DELETE",
     allowedHeaders: "Content-Type,Authorization",
-  }
-)); // add CORS middleware to allow cross-origin requests from the frontend
+  })
+);
 app.use(express.json());
 
 // Import Routes
@@ -41,12 +43,58 @@ app.use("/api/registrations", registrationRoutes);
 
 // Test Route
 app.get("/", (req, res) => {
-  res.send("Community Event Planner API is running 🚀");
+  res.send("Community Event Planner API is running");
 });
 
-const PORT = Number(process.env.PORT) || 5001;
+function resolvePort(value) {
+  const parsed = Number(value);
+  if (Number.isInteger(parsed) && parsed > 0 && parsed < 65536) {
+    return parsed;
+  }
+  return 5001;
+}
 
-// Start Server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+function validateDatabaseUrl() {
+  const rawDatabaseUrl = String(process.env.DATABASE_URL || "").trim();
+  if (!rawDatabaseUrl) {
+    throw new Error("DATABASE_URL is missing. Set it in backend/.env.");
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(rawDatabaseUrl);
+  } catch {
+    throw new Error("DATABASE_URL is not a valid URL.");
+  }
+
+  if (!["postgres:", "postgresql:"].includes(parsedUrl.protocol)) {
+    throw new Error(`DATABASE_URL protocol must be postgres/postgresql, got "${parsedUrl.protocol}".`);
+  }
+}
+
+async function startServer() {
+  try {
+    validateDatabaseUrl();
+    await prisma.$connect();
+
+    const port = resolvePort(process.env.PORT);
+    app.listen(port, () => {
+      console.log(`Server running on port ${port}`);
+    });
+  } catch (error) {
+    console.error(`[startup] ${error.message}`);
+    process.exit(1);
+  }
+}
+
+process.on("SIGINT", async () => {
+  await prisma.$disconnect();
+  process.exit(0);
 });
+
+process.on("SIGTERM", async () => {
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+startServer();

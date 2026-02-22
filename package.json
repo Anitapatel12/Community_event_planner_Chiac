@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "npm run dev",
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "start": "node scripts/run-dev.js",
+    "dev": "node scripts/run-dev.js",
     "dev:backend": "nodemon backend/server.js",
     "dev:frontend": "npm run dev --prefix frontend",
     "build": "npm run build --prefix frontend",
@@ -19,6 +19,9 @@
   "license": "ISC",
   "type": "commonjs",
   "description": "",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "@prisma/client": "^6.19.2",
     "bcrypt": "^6.0.0",

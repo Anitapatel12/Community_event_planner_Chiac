@@ -39,18 +39,29 @@ npm run db:push
 npm start
 ```
 
-This starts:
-- backend on `http://localhost:5001`
-- frontend on `http://localhost:3000` (auto-falls back to next free port if occupied)
+`npm start` now performs startup preflight checks and then starts both services with conflict-safe ports:
+- validates Node.js version (`>=18`)
+- validates `DATABASE_URL` is present and looks like a PostgreSQL URL
+- chooses a free backend port (starting at `5001`)
+- chooses a free frontend port (starting at `3000`)
+- wires frontend proxy to the selected backend origin automatically
+
+If your preferred ports are busy, the app auto-shifts to the next available ports and logs the selected URLs.
 
 ## Available Scripts
 
 - `npm start` - runs frontend + backend together
-- `npm run dev:backend` - backend only
-- `npm run dev:frontend` - frontend only
+- `npm run dev` - same as `npm start`
+- `npm run dev:backend` - backend only (default backend port from env)
+- `npm run dev:frontend` - frontend only (default frontend port behavior)
 - `npm run lint` - frontend lint
 - `npm run build` - frontend build
 - `npm run db:push` - sync Prisma schema to DB
+
+## Runtime Safety Notes
+
+- If `backend/.env` is missing or `DATABASE_URL` is invalid, startup fails fast with a clear error.
+- Backend verifies database connectivity during boot instead of failing later on the first API call.
 
 ## Auth Roles
 
