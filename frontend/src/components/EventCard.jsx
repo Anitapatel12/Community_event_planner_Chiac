@@ -37,6 +37,7 @@ function EventCard({ event, handleRSVP, handleDeleteClick, currentUser, userRole
   const isOwner = event.createdBy === currentUser;
   const canEdit = isAdmin || isOwner;
   const canDelete = isAdmin || isOwner;
+  const canRSVP = !isAdmin;
   const cardToneClasses = creatorRole === "admin"
     ? "bg-gradient-to-br from-rose-50/90 via-white to-amber-50/80 border-rose-200/80 hover:border-rose-300 shadow-[0_14px_34px_-26px_rgba(244,63,94,0.55)]"
     : "bg-gradient-to-br from-sky-50/90 via-white to-cyan-50/80 border-cyan-200/80 hover:border-cyan-300 shadow-[0_14px_34px_-26px_rgba(14,165,233,0.5)]";
@@ -155,26 +156,32 @@ function EventCard({ event, handleRSVP, handleDeleteClick, currentUser, userRole
             )}
           </div>
 
-          <div className="rounded-xl border border-slate-200/90 bg-white/75 p-1 grid grid-cols-3 gap-1">
-            <button
-              onClick={() => handleRSVP(event.id, 'going')}
-              className={rsvpButtonClasses('going')}
-            >
-              <span>Going</span>
-            </button>
-            <button
-              onClick={() => handleRSVP(event.id, 'maybe')}
-              className={rsvpButtonClasses('maybe')}
-            >
-              <span>Maybe</span>
-            </button>
-            <button
-              onClick={() => handleRSVP(event.id, 'notgoing')}
-              className={rsvpButtonClasses('notgoing')}
-            >
-              <span>Not going</span>
-            </button>
-          </div>
+          {canRSVP ? (
+            <div className="rounded-xl border border-slate-200/90 bg-white/75 p-1 grid grid-cols-3 gap-1">
+              <button
+                onClick={() => handleRSVP(event.id, 'going')}
+                className={rsvpButtonClasses('going')}
+              >
+                <span>Going</span>
+              </button>
+              <button
+                onClick={() => handleRSVP(event.id, 'maybe')}
+                className={rsvpButtonClasses('maybe')}
+              >
+                <span>Maybe</span>
+              </button>
+              <button
+                onClick={() => handleRSVP(event.id, 'notgoing')}
+                className={rsvpButtonClasses('notgoing')}
+              >
+                <span>Not going</span>
+              </button>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              RSVP is available to users only.
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -182,5 +189,4 @@ function EventCard({ event, handleRSVP, handleDeleteClick, currentUser, userRole
 }
 
 export default EventCard;
-
 

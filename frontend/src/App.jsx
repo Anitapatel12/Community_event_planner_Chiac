@@ -1,7 +1,6 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { useState, useEffect, useRef } from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
 import Home from "./pages/Home";
-import Events from "./pages/Events";
 import CreateEvent from "./pages/CreateEvent";
 import EditEvent from "./pages/EditEvent";
 import EventDetails from "./pages/EventDetails";
@@ -11,6 +10,38 @@ import Toast from "./components/Toast";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
 import { detectBackendStatus } from "./services/backendCompatibility";
+
+const AUTH_STORAGE_KEY = "eventhub_auth_session";
+
+function loadAuthSession() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) {
+      return { isLoggedIn: false, currentUser: null, userRole: null };
+    }
+
+    const parsed = JSON.parse(raw);
+    return {
+      isLoggedIn: Boolean(parsed?.isLoggedIn),
+      currentUser: parsed?.currentUser || null,
+      userRole: parsed?.userRole || null,
+    };
+  } catch {
+    return { isLoggedIn: false, currentUser: null, userRole: null };
+  }
+}
+
+function loadEventsFromStorage() {
+  try {
+    const raw = localStorage.getItem("events");
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 function ProtectedRoute({
   children,
@@ -22,20 +53,25 @@ function ProtectedRoute({
   if (!isLoggedIn) {
     return <Navigate to="/login" replace />;
   }
+
   if (requireAdmin && userRole !== "admin") {
     onUnauthorized?.();
-    return <Navigate to="/events" replace />;
+    return <Navigate to="/home" replace />;
   }
+
   return children;
 }
 
 function App() {
   const backendCheckStartedRef = useRef(false);
+  const initialAuth = loadAuthSession();
 
- // 👇 ADD DARK MODE HERE
-  const [darkMode, setDarkMode] = useState(
-    localStorage.getItem("theme") === "dark"
-  );
+  const [darkMode, setDarkMode] = useState(localStorage.getItem("theme") === "dark");
+  const [events, setEvents] = useState(() => loadEventsFromStorage());
+  const [isLoggedIn, setIsLoggedIn] = useState(initialAuth.isLoggedIn);
+  const [currentUser, setCurrentUser] = useState(initialAuth.currentUser);
+  const [userRole, setUserRole] = useState(initialAuth.userRole);
+  const [toast, setToast] = useState(null);
 
   useEffect(() => {
     if (darkMode) {
@@ -47,26 +83,26 @@ function App() {
     }
   }, [darkMode]);
 
-  // Load events from localStorage on initial render
-  const [events, setEvents] = useState(() => {
-    const savedEvents = localStorage.getItem('events');
-    return savedEvents ? JSON.parse(savedEvents) : [];
-  });
-  
-  // Save events to localStorage whenever they change
   useEffect(() => {
-    localStorage.setItem('events', JSON.stringify(events));
+    try {
+      localStorage.setItem("events", JSON.stringify(events));
+    } catch {
+      // Ignore storage persistence failures (quota/private mode) and keep UI usable.
+    }
   }, [events]);
-  
-  // Authentication state
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null);
-  const [userRole, setUserRole] = useState(null);
-  
-  // Toast state for notifications
-  const [toast, setToast] = useState(null);
 
-  const showToast = (message, type = 'success') => {
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        AUTH_STORAGE_KEY,
+        JSON.stringify({ isLoggedIn, currentUser, userRole })
+      );
+    } catch {
+      // Ignore persistence failures to avoid breaking runtime behavior.
+    }
+  }, [isLoggedIn, currentUser, userRole]);
+
+  const showToast = (message, type = "success") => {
     setToast({ message, type });
   };
 
@@ -74,7 +110,6 @@ function App() {
     setToast(null);
   };
 
-  // Non-blocking backend compatibility check.
   useEffect(() => {
     if (backendCheckStartedRef.current) return;
     backendCheckStartedRef.current = true;
@@ -101,116 +136,125 @@ function App() {
     };
   }, []);
 
-  // Handle login
   const handleLogin = (user) => {
+    const resolvedUsername = user?.username || user?.name || "user";
+    const resolvedRole =
+      user?.role || (String(resolvedUsername).toLowerCase() === "admin" ? "admin" : "user");
+
     setIsLoggedIn(true);
-    setCurrentUser(user.username);
-    setUserRole(user.role);
-    showToast(`Welcome, ${user.username}!`, "success");
+    setCurrentUser(resolvedUsername);
+    setUserRole(resolvedRole);
+    showToast(`Welcome, ${resolvedUsername}!`, "success");
   };
 
-useEffect(() => {
-  if (!isLoggedIn) return;
+  useEffect(() => {
+    if (!isLoggedIn) return;
 
-  const now = new Date();
+    const now = new Date();
+    const upcomingEvents = events.filter((event) => {
+      if (!event.date) return false;
+      const eventDateTime = new Date(`${event.date}T${event.time || "00:00"}`);
+      return eventDateTime > now;
+    });
 
-  const upcomingEvents = events.filter((event) => {
-    if (!event.date) return false;
+    if (upcomingEvents.length > 0) {
+      const timer = setTimeout(() => {
+        showToast(`You have ${upcomingEvents.length} upcoming event(s)!`, "info");
+      }, 1200);
 
-    const eventDateTime = new Date(
-      `${event.date}T${event.time || "00:00"}`
-    );
+      return () => clearTimeout(timer);
+    }
 
-    return eventDateTime > now;
-  });
+    return undefined;
+  }, [events, isLoggedIn]);
 
-  if (upcomingEvents.length > 0) {
-    const timer = setTimeout(() => {
-      showToast(
-        `🔔 You have ${upcomingEvents.length} upcoming event(s)!`,
-        "info"
-      );
-    }, 1200);
-
-    return () => clearTimeout(timer);
-  }
-}, [events, isLoggedIn]);
-  
-  // Handle logout
   const handleLogout = () => {
     setIsLoggedIn(false);
     setCurrentUser(null);
     setUserRole(null);
+    localStorage.removeItem(AUTH_STORAGE_KEY);
     showToast("Logged out successfully!", "success");
-    // Navigate to login page after logout
     window.location.href = "/login";
   };
 
   return (
     <BrowserRouter>
       <div className="app-shell min-h-screen font-sans text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900 transition-colors duration-300">
-        <Navbar isLoggedIn={isLoggedIn} currentUser={currentUser} userRole={userRole} onLogout={handleLogout} darkMode={darkMode}
-  setDarkMode={setDarkMode}/>
+        <Navbar
+          isLoggedIn={isLoggedIn}
+          currentUser={currentUser}
+          userRole={userRole}
+          onLogout={handleLogout}
+          darkMode={darkMode}
+          setDarkMode={setDarkMode}
+        />
         <main className="container mx-auto px-4 py-6 relative">
           <Routes>
-            <Route path="/login" element={<Login onLogin={handleLogin} />} />
             <Route
-              path="/"
+              path="/login"
+              element={isLoggedIn ? <Navigate to="/home" replace /> : <Login onLogin={handleLogin} />}
+            />
+            <Route path="/" element={<Navigate to={isLoggedIn ? "/home" : "/login"} replace />} />
+            <Route
+              path="/home"
               element={
-                <Home
-                  events={events}
-                  setEvents={setEvents}
-                  currentUser={currentUser}
-                  userRole={userRole}
-                  showToast={showToast}
-                />
+                <ProtectedRoute isLoggedIn={isLoggedIn} userRole={userRole}>
+                  <Home
+                    events={events}
+                    setEvents={setEvents}
+                    currentUser={currentUser}
+                    userRole={userRole}
+                    showToast={showToast}
+                  />
+                </ProtectedRoute>
               }
             />
-            <Route path="/events" element={
-                <Events
-                  events={events}
-                  setEvents={setEvents}
-                  currentUser={currentUser}
-                  userRole={userRole}
-                  showToast={showToast}
-                />
+            <Route path="/about" element={<About />} />
+            <Route path="/contact" element={<Contact />} />
+            <Route
+              path="/create"
+              element={
+                <ProtectedRoute isLoggedIn={isLoggedIn} userRole={userRole}>
+                  <CreateEvent
+                    setEvents={setEvents}
+                    currentUser={currentUser}
+                    userRole={userRole}
+                    showToast={showToast}
+                  />
+                </ProtectedRoute>
               }
             />
-
-
-          < Route path="/about" element={<About />} />
-
-          <Route path="/contact" element={<Contact />} />
-
-            
-            <Route path="/create" element={
-              <ProtectedRoute
-                isLoggedIn={isLoggedIn}
-                userRole={userRole}
-              >
-                <CreateEvent setEvents={setEvents} currentUser={currentUser} userRole={userRole} showToast={showToast} />
-              </ProtectedRoute>
-            } />
-            <Route path="/edit/:id" element={
-              <ProtectedRoute
-                isLoggedIn={isLoggedIn}
-                userRole={userRole}
-              >
-                <EditEvent events={events} setEvents={setEvents} currentUser={currentUser} userRole={userRole} showToast={showToast} />
-              </ProtectedRoute>
-            } />
-            <Route path="/event/:id" element={<EventDetails events={events} currentUser={currentUser} userRole={userRole} showToast={showToast} />} />
+            <Route
+              path="/edit/:id"
+              element={
+                <ProtectedRoute isLoggedIn={isLoggedIn} userRole={userRole}>
+                  <EditEvent
+                    events={events}
+                    setEvents={setEvents}
+                    currentUser={currentUser}
+                    userRole={userRole}
+                    showToast={showToast}
+                  />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/event/:id"
+              element={
+                <ProtectedRoute isLoggedIn={isLoggedIn} userRole={userRole}>
+                  <EventDetails
+                    events={events}
+                    currentUser={currentUser}
+                    userRole={userRole}
+                    showToast={showToast}
+                  />
+                </ProtectedRoute>
+              }
+            />
           </Routes>
         </main>
-        
-        {/* Toast Notification */}
-        {toast && (
-          <Toast 
-            message={toast.message} 
-            type={toast.type} 
-            onClose={hideToast} 
-          />
-        )}
+
+        {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
       </div>
     </BrowserRouter>
   );

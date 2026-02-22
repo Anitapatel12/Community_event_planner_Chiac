@@ -101,7 +101,7 @@ function EventDetails({ events, currentUser, userRole }) {
                 </Link>
               )}
               <button
-                onClick={() => navigate("/events")}
+                onClick={() => navigate("/home")}
                 className="bg-white/20 backdrop-blur-sm text-white px-4 py-2 rounded-lg font-medium hover:bg-white/30 transition-all flex items-center space-x-2"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -365,5 +365,4 @@ function EventDetails({ events, currentUser, userRole }) {
 }
 
 export default EventDetails;
-
 

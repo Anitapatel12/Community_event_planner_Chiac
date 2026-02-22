@@ -13,60 +13,72 @@ function CreateEvent({ setEvents, currentUser, userRole, showToast }) {
     location: "",
     description: "",
     category: "",
-    maxAttendees: ""
+    maxAttendees: "",
   });
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-    // Clear error when user starts typing
+    setFormData((prev) => ({
+      ...prev,
+      [e.target.name]: e.target.value,
+    }));
+
     if (errors[e.target.name]) {
-      setErrors({
-        ...errors,
-        [e.target.name]: ""
-      });
+      setErrors((prev) => ({
+        ...prev,
+        [e.target.name]: "",
+      }));
     }
   };
 
   const validateForm = () => {
     const newErrors = {};
+
     if (!formData.title.trim()) newErrors.title = "Title is required";
     if (!formData.date) newErrors.date = "Date is required";
     if (!formData.time) newErrors.time = "Time is required";
     if (!formData.location.trim()) newErrors.location = "Location is required";
     if (!formData.category.trim()) newErrors.category = "Category is required";
     if (!formData.description.trim()) newErrors.description = "Description is required";
-    if (!formData.maxAttendees || formData.maxAttendees < 1) newErrors.maxAttendees = "Maximum attendees is required";
+
+    if (formData.maxAttendees !== "") {
+      const parsedCapacity = Number(formData.maxAttendees);
+      if (Number.isNaN(parsedCapacity) || parsedCapacity < 0) {
+        newErrors.maxAttendees = "Maximum attendees cannot be negative";
+      }
+    }
+
     return newErrors;
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    
+
     const validationErrors = validateForm();
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
       return;
     }
 
+    const normalizedMaxAttendees =
+      formData.maxAttendees === "" ? "" : Number(formData.maxAttendees);
+
     const newEvent = {
       id: Date.now(),
       ...formData,
+      maxAttendees: normalizedMaxAttendees,
       attendees: [],
       createdBy: currentUser,
-      createdByRole: userRole || "user"
+      createdByRole: userRole || "user",
     };
 
-    setEvents(prevEvents => [...prevEvents, newEvent]);
+    setEvents((prevEvents) => [...prevEvents, newEvent]);
 
     showToast?.(
-      `🎉 Event "${newEvent.title}" created!\n📅 ${newEvent.date} at ${newEvent.time}`,
-     "success"
+      `Event "${newEvent.title}" created on ${newEvent.date} at ${newEvent.time}`,
+      "success"
     );
 
-navigate("/");
+    navigate("/home");
   };
 
   return (

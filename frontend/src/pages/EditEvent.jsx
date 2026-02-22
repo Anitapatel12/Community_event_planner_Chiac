@@ -26,7 +26,7 @@ function EditEvent({ events, setEvents, currentUser, userRole, showToast }) {
     if (eventToEdit && !canEdit) {
       // prevent editing by users who do not own the event
       showToast?.("You don't have permission to edit this event", "error");
-      navigate("/");
+      navigate("/home");
     }
   }, [eventToEdit, currentUser, userRole, navigate, showToast]);
 
@@ -52,7 +52,12 @@ function EditEvent({ events, setEvents, currentUser, userRole, showToast }) {
     if (!formData.location?.trim()) newErrors.location = "Location is required";
     if (!formData.category?.trim()) newErrors.category = "Category is required";
     if (!formData.description?.trim()) newErrors.description = "Description is required";
-    if (!formData.maxAttendees || formData.maxAttendees < 1) newErrors.maxAttendees = "Maximum attendees is required";
+    if (formData.maxAttendees !== "") {
+      const parsedCapacity = Number(formData.maxAttendees);
+      if (Number.isNaN(parsedCapacity) || parsedCapacity < 0) {
+        newErrors.maxAttendees = "Maximum attendees cannot be negative";
+      }
+    }
     return newErrors;
   };
 
@@ -65,13 +70,18 @@ function EditEvent({ events, setEvents, currentUser, userRole, showToast }) {
       return;
     }
 
+    const normalizedMaxAttendees =
+      formData.maxAttendees === "" ? "" : Number(formData.maxAttendees);
+
     const updated = events.map(event =>
-      event.id === Number(id) ? formData : event
+      event.id === Number(id)
+        ? { ...formData, maxAttendees: normalizedMaxAttendees }
+        : event
     );
 
     setEvents(updated);
     showToast?.("Event updated successfully!", "success");
-    navigate("/");
+    navigate("/home");
   };
 
   return (
