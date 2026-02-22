@@ -13,7 +13,6 @@ import { detectBackendStatus } from "./services/backendCompatibility";
 import { fetchEventsFromApi } from "./services/eventsApi";
 
 const AUTH_STORAGE_KEY = "eventhub_auth_session";
-const EVENTS_STORAGE_KEY = "events";
 
 function loadAuthSession() {
   try {
@@ -31,18 +30,6 @@ function loadAuthSession() {
     };
   } catch {
     return { isLoggedIn: false, currentUser: null, currentUserId: null, userRole: null };
-  }
-}
-
-function loadEventsFromStorage() {
-  try {
-    const raw = localStorage.getItem(EVENTS_STORAGE_KEY);
-    if (!raw) return [];
-
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
   }
 }
 
@@ -70,7 +57,7 @@ function App() {
   const initialAuth = loadAuthSession();
 
   const [darkMode, setDarkMode] = useState(localStorage.getItem("theme") === "dark");
-  const [events, setEvents] = useState(() => loadEventsFromStorage());
+  const [events, setEvents] = useState([]);
   const [isLoggedIn, setIsLoggedIn] = useState(initialAuth.isLoggedIn);
   const [currentUser, setCurrentUser] = useState(initialAuth.currentUser);
   const [currentUserId, setCurrentUserId] = useState(initialAuth.currentUserId);
@@ -87,10 +74,6 @@ function App() {
   };
 
   const refreshEvents = useCallback(async () => {
-    if (!apiConnected) {
-      return false;
-    }
-
     try {
       const apiEvents = await fetchEventsFromApi();
       setEvents(apiEvents);
@@ -98,7 +81,7 @@ function App() {
     } catch {
       return false;
     }
-  }, [apiConnected]);
+  }, []);
 
   useEffect(() => {
     if (darkMode) {
@@ -111,12 +94,9 @@ function App() {
   }, [darkMode]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(EVENTS_STORAGE_KEY, JSON.stringify(events));
-    } catch {
-      // Ignore persistence failures and keep UI responsive.
-    }
-  }, [events]);
+    // Clear legacy cached event data from previous frontend-only mode builds.
+    localStorage.removeItem("events");
+  }, []);
 
   useEffect(() => {
     try {
@@ -141,7 +121,8 @@ function App() {
 
       if (!status.connected) {
         setApiConnected(false);
-        showToast("Backend not reachable. Running in frontend-only mode.", "warning");
+        setEvents([]);
+        showToast("Backend not reachable. Event data is unavailable.", "warning");
         return;
       }
 
@@ -149,7 +130,8 @@ function App() {
 
       const loaded = await refreshEvents();
       if (!loaded) {
-        showToast("Backend connected, but events sync failed. Using local cache.", "warning");
+        setEvents([]);
+        showToast("Backend connected, but events sync failed.", "warning");
       }
     };
 
@@ -229,7 +211,6 @@ function App() {
                 <ProtectedRoute isLoggedIn={isLoggedIn} userRole={userRole}>
                   <Home
                     events={events}
-                    setEvents={setEvents}
                     currentUser={currentUser}
                     currentUserId={currentUserId}
                     userRole={userRole}
@@ -247,8 +228,6 @@ function App() {
               element={
                 <ProtectedRoute isLoggedIn={isLoggedIn} userRole={userRole}>
                   <CreateEvent
-                    setEvents={setEvents}
-                    currentUser={currentUser}
                     currentUserId={currentUserId}
                     userRole={userRole}
                     apiConnected={apiConnected}
@@ -264,7 +243,6 @@ function App() {
                 <ProtectedRoute isLoggedIn={isLoggedIn} userRole={userRole}>
                   <EditEvent
                     events={events}
-                    setEvents={setEvents}
                     currentUser={currentUser}
                     currentUserId={currentUserId}
                     userRole={userRole}

@@ -5,7 +5,6 @@ import { updateEventInApi } from "../services/eventsApi";
 
 function EditEvent({
   events,
-  setEvents,
   currentUser,
   currentUserId,
   userRole,
@@ -88,56 +87,40 @@ function EditEvent({
     const normalizedMaxAttendees =
       formData.maxAttendees === "" ? "" : Number(formData.maxAttendees);
 
-    if (apiConnected) {
-      if (!currentUserId) {
-        showToast?.("Unable to identify current user for event update", "error");
-        return;
-      }
-
-      try {
-        await updateEventInApi({
-          id: Number(id),
-          creatorId: currentUserId,
-          requesterRole: userRole || "user",
-          title: formData.title,
-          description: formData.description,
-          location: formData.location,
-          date: formData.date,
-          time: formData.time,
-          category: formData.category,
-          maxAttendees: normalizedMaxAttendees,
-        });
-
-        const synced = await refreshEvents?.();
-        if (!synced) {
-          setEvents((prevEvents) =>
-            prevEvents.map((event) =>
-              event.id === Number(id)
-                ? { ...formData, id: Number(id), maxAttendees: normalizedMaxAttendees }
-                : event
-            )
-          );
-        }
-
-        showToast?.("Event updated successfully!", "success");
-        navigate("/home");
-        return;
-      } catch (error) {
-        showToast?.(error.message || "Failed to update event", "error");
-        return;
-      }
+    if (!apiConnected) {
+      showToast?.("Backend is unavailable. Event editing is disabled.", "error");
+      return;
     }
 
-    setEvents((prevEvents) =>
-      prevEvents.map((event) =>
-        event.id === Number(id)
-          ? { ...formData, id: Number(id), maxAttendees: normalizedMaxAttendees }
-          : event
-      )
-    );
+    if (!currentUserId) {
+      showToast?.("Unable to identify current user for event update", "error");
+      return;
+    }
 
-    showToast?.("Event updated successfully!", "success");
-    navigate("/home");
+    try {
+      await updateEventInApi({
+        id: Number(id),
+        creatorId: currentUserId,
+        requesterRole: userRole || "user",
+        title: formData.title,
+        description: formData.description,
+        location: formData.location,
+        date: formData.date,
+        time: formData.time,
+        category: formData.category,
+        maxAttendees: normalizedMaxAttendees,
+      });
+
+      const synced = await refreshEvents?.();
+      if (!synced) {
+        showToast?.("Event updated, but refresh failed. Reload Home to sync.", "warning");
+      } else {
+        showToast?.("Event updated successfully!", "success");
+      }
+      navigate("/home");
+    } catch (error) {
+      showToast?.(error.message || "Failed to update event", "error");
+    }
   };
 
   return (

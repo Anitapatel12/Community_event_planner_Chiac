@@ -4,8 +4,6 @@ import EventForm from "../components/EventForm";
 import { createEventInApi } from "../services/eventsApi";
 
 function CreateEvent({
-  setEvents,
-  currentUser,
   currentUserId,
   userRole,
   apiConnected,
@@ -71,67 +69,41 @@ function CreateEvent({
     const normalizedMaxAttendees =
       formData.maxAttendees === "" ? "" : Number(formData.maxAttendees);
 
-    if (apiConnected) {
-      if (!currentUserId) {
-        showToast?.("Unable to identify current user for event creation", "error");
-        return;
-      }
+    if (!apiConnected) {
+      showToast?.("Backend is unavailable. Event creation is disabled.", "error");
+      return;
+    }
 
-      try {
-        await createEventInApi({
-          title: formData.title,
-          description: formData.description,
-          location: formData.location,
-          date: formData.date,
-          time: formData.time,
-          category: formData.category,
-          maxAttendees: normalizedMaxAttendees,
-          creatorId: currentUserId,
-        });
+    if (!currentUserId) {
+      showToast?.("Unable to identify current user for event creation", "error");
+      return;
+    }
 
-        const synced = await refreshEvents?.();
-        if (!synced) {
-          setEvents((prevEvents) => [
-            ...prevEvents,
-            {
-              id: Date.now(),
-              ...formData,
-              maxAttendees: normalizedMaxAttendees,
-              attendees: [],
-              createdBy: currentUser,
-              createdByRole: userRole || "user",
-            },
-          ]);
-        }
+    try {
+      await createEventInApi({
+        title: formData.title,
+        description: formData.description,
+        location: formData.location,
+        date: formData.date,
+        time: formData.time,
+        category: formData.category,
+        maxAttendees: normalizedMaxAttendees,
+        creatorId: currentUserId,
+      });
 
+      const synced = await refreshEvents?.();
+      if (!synced) {
+        showToast?.("Event created, but refresh failed. Reload Home to sync.", "warning");
+      } else {
         showToast?.(
           `Event "${formData.title}" created on ${formData.date} at ${formData.time}`,
           "success"
         );
-        navigate("/home");
-        return;
-      } catch (error) {
-        showToast?.(error.message || "Failed to create event", "error");
-        return;
       }
+      navigate("/home");
+    } catch (error) {
+      showToast?.(error.message || "Failed to create event", "error");
     }
-
-    const newEvent = {
-      id: Date.now(),
-      ...formData,
-      maxAttendees: normalizedMaxAttendees,
-      attendees: [],
-      createdBy: currentUser,
-      createdByRole: userRole || "user",
-    };
-
-    setEvents((prevEvents) => [...prevEvents, newEvent]);
-    showToast?.(
-      `Event "${newEvent.title}" created on ${newEvent.date} at ${newEvent.time}`,
-      "success"
-    );
-
-    navigate("/home");
   };
 
   return (

@@ -6,7 +6,6 @@ import { deleteEventInApi, upsertRsvpInApi } from "../services/eventsApi";
 
 function Home({
   events,
-  setEvents,
   currentUser,
   currentUserId,
   userRole,
@@ -19,35 +18,6 @@ function Home({
   const [date, setDate] = useState("");
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, eventId: null });
 
-  const normalizeAttendee = (attendee) => {
-    if (typeof attendee === "string") {
-      return { name: attendee, status: "going" };
-    }
-    return attendee;
-  };
-
-  const applyLocalRsvp = (id, status) => {
-    const updated = events.map((event) => {
-      if (event.id !== id) return event;
-
-      const existingIndex = event.attendees?.findIndex((attendee) => {
-        const normalized = normalizeAttendee(attendee);
-        return normalized.name === currentUser;
-      });
-
-      const newAttendees = [...(event.attendees || [])];
-      if (existingIndex >= 0) {
-        newAttendees[existingIndex] = { name: currentUser, status };
-      } else {
-        newAttendees.push({ name: currentUser, status });
-      }
-
-      return { ...event, attendees: newAttendees };
-    });
-
-    setEvents(updated);
-  };
-
   const handleRSVP = async (id, status) => {
     if (userRole === "admin") {
       showToast?.("Admins cannot RSVP to events", "warning");
@@ -59,23 +29,22 @@ function Home({
       return;
     }
 
-    if (apiConnected) {
-      try {
-        await upsertRsvpInApi({ userId: currentUserId, eventId: id, status });
-        const synced = await refreshEvents?.();
-        if (!synced) {
-          applyLocalRsvp(id, status);
-        }
-        showToast?.(`Successfully marked as "${status}"!`, "success");
-        return;
-      } catch (error) {
-        showToast?.(error.message || "Failed to update RSVP", "error");
-        return;
-      }
+    if (!apiConnected) {
+      showToast?.("Backend is unavailable. RSVP is disabled.", "error");
+      return;
     }
 
-    applyLocalRsvp(id, status);
-    showToast?.(`Successfully marked as "${status}"!`, "success");
+    try {
+      await upsertRsvpInApi({ userId: currentUserId, eventId: id, status });
+      const synced = await refreshEvents?.();
+      if (!synced) {
+        showToast?.(`RSVP saved as "${status}", but refresh failed.`, "warning");
+        return;
+      }
+      showToast?.(`Successfully marked as "${status}"!`, "success");
+    } catch (error) {
+      showToast?.(error.message || "Failed to update RSVP", "error");
+    }
   };
 
   const handleDeleteClick = (id) => {
@@ -100,36 +69,35 @@ function Home({
       return;
     }
 
-    if (apiConnected) {
-      if (!currentUserId) {
-        showToast?.("User context missing for delete action", "error");
-        setDeleteModal({ isOpen: false, eventId: null });
-        return;
-      }
-
-      try {
-        await deleteEventInApi({
-          id: deleteModal.eventId,
-          creatorId: currentUserId,
-          requesterRole: userRole || "user",
-        });
-        const synced = await refreshEvents?.();
-        if (!synced) {
-          setEvents((prevEvents) => prevEvents.filter((event) => event.id !== deleteModal.eventId));
-        }
-        showToast?.("Event deleted successfully!", "success");
-      } catch (error) {
-        showToast?.(error.message || "Failed to delete event", "error");
-      } finally {
-        setDeleteModal({ isOpen: false, eventId: null });
-      }
-
+    if (!apiConnected) {
+      showToast?.("Backend is unavailable. Delete is disabled.", "error");
+      setDeleteModal({ isOpen: false, eventId: null });
       return;
     }
 
-    setEvents((prevEvents) => prevEvents.filter((event) => event.id !== deleteModal.eventId));
-    showToast?.("Event deleted successfully!", "success");
-    setDeleteModal({ isOpen: false, eventId: null });
+    if (!currentUserId) {
+      showToast?.("User context missing for delete action", "error");
+      setDeleteModal({ isOpen: false, eventId: null });
+      return;
+    }
+
+    try {
+      await deleteEventInApi({
+        id: deleteModal.eventId,
+        creatorId: currentUserId,
+        requesterRole: userRole || "user",
+      });
+      const synced = await refreshEvents?.();
+      if (!synced) {
+        showToast?.("Event deleted, but refresh failed.", "warning");
+      } else {
+        showToast?.("Event deleted successfully!", "success");
+      }
+    } catch (error) {
+      showToast?.(error.message || "Failed to delete event", "error");
+    } finally {
+      setDeleteModal({ isOpen: false, eventId: null });
+    }
   };
 
   const handleDeleteCancel = () => {
@@ -152,14 +120,27 @@ function Home({
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h2 className="text-3xl font-bold gradient-text">All Events</h2>
 
-        <Link to="/create">
-          <button className="btn-gradient px-6 py-2.5 rounded-lg font-medium transition-all shadow-md flex items-center space-x-2">
+        {apiConnected ? (
+          <Link to="/create">
+            <button className="btn-gradient px-6 py-2.5 rounded-lg font-medium transition-all shadow-md flex items-center space-x-2">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              <span>Create Event</span>
+            </button>
+          </Link>
+        ) : (
+          <button
+            className="px-6 py-2.5 rounded-lg font-medium border border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed flex items-center space-x-2"
+            disabled
+            title="Backend unavailable"
+          >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
             <span>Create Event</span>
           </button>
-        </Link>
+        )}
       </div>
 
       <div className="surface-card gradient-border soft-gradient-panel rounded-2xl shadow-md p-4 mb-6">
@@ -219,13 +200,21 @@ function Home({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
           </div>
-          <h3 className="text-xl font-semibold text-slate-700 mb-2">No events yet</h3>
-          <p className="text-slate-500 mb-4">Create your first event to get started!</p>
-          <Link to="/create">
-            <button className="btn-gradient px-6 py-2.5 rounded-lg font-medium transition-all">
-              Create Event
-            </button>
-          </Link>
+          <h3 className="text-xl font-semibold text-slate-700 mb-2">
+            {apiConnected ? "No events yet" : "Backend unavailable"}
+          </h3>
+          <p className="text-slate-500 mb-4">
+            {apiConnected
+              ? "Create your first event to get started!"
+              : "Unable to load events. Start backend and refresh this page."}
+          </p>
+          {apiConnected ? (
+            <Link to="/create">
+              <button className="btn-gradient px-6 py-2.5 rounded-lg font-medium transition-all">
+                Create Event
+              </button>
+            </Link>
+          ) : null}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

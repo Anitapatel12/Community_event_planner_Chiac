@@ -62,6 +62,7 @@ If your preferred ports are busy, the app auto-shifts to the next available port
 
 - If `backend/.env` is missing or `DATABASE_URL` is invalid, startup fails fast with a clear error.
 - Backend verifies database connectivity during boot instead of failing later on the first API call.
+- Event list/RSVP/create/edit/delete are backend-backed only. No local event cache fallback is used.
 
 ## Auth Roles
 
