@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Home from "./pages/Home";
 import CreateEvent from "./pages/CreateEvent";
 import EditEvent from "./pages/EditEvent";
@@ -10,30 +10,33 @@ import Toast from "./components/Toast";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
 import { detectBackendStatus } from "./services/backendCompatibility";
+import { fetchEventsFromApi } from "./services/eventsApi";
 
 const AUTH_STORAGE_KEY = "eventhub_auth_session";
+const EVENTS_STORAGE_KEY = "events";
 
 function loadAuthSession() {
   try {
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) {
-      return { isLoggedIn: false, currentUser: null, userRole: null };
+      return { isLoggedIn: false, currentUser: null, currentUserId: null, userRole: null };
     }
 
     const parsed = JSON.parse(raw);
     return {
       isLoggedIn: Boolean(parsed?.isLoggedIn),
       currentUser: parsed?.currentUser || null,
+      currentUserId: parsed?.currentUserId ?? null,
       userRole: parsed?.userRole || null,
     };
   } catch {
-    return { isLoggedIn: false, currentUser: null, userRole: null };
+    return { isLoggedIn: false, currentUser: null, currentUserId: null, userRole: null };
   }
 }
 
 function loadEventsFromStorage() {
   try {
-    const raw = localStorage.getItem("events");
+    const raw = localStorage.getItem(EVENTS_STORAGE_KEY);
     if (!raw) return [];
 
     const parsed = JSON.parse(raw);
@@ -70,8 +73,32 @@ function App() {
   const [events, setEvents] = useState(() => loadEventsFromStorage());
   const [isLoggedIn, setIsLoggedIn] = useState(initialAuth.isLoggedIn);
   const [currentUser, setCurrentUser] = useState(initialAuth.currentUser);
+  const [currentUserId, setCurrentUserId] = useState(initialAuth.currentUserId);
   const [userRole, setUserRole] = useState(initialAuth.userRole);
+  const [apiConnected, setApiConnected] = useState(false);
   const [toast, setToast] = useState(null);
+
+  const showToast = useCallback((message, type = "success") => {
+    setToast({ message, type });
+  }, []);
+
+  const hideToast = () => {
+    setToast(null);
+  };
+
+  const refreshEvents = useCallback(async () => {
+    if (!apiConnected) {
+      return false;
+    }
+
+    try {
+      const apiEvents = await fetchEventsFromApi();
+      setEvents(apiEvents);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [apiConnected]);
 
   useEffect(() => {
     if (darkMode) {
@@ -85,9 +112,9 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem("events", JSON.stringify(events));
+      localStorage.setItem(EVENTS_STORAGE_KEY, JSON.stringify(events));
     } catch {
-      // Ignore storage persistence failures (quota/private mode) and keep UI usable.
+      // Ignore persistence failures and keep UI responsive.
     }
   }, [events]);
 
@@ -95,20 +122,12 @@ function App() {
     try {
       localStorage.setItem(
         AUTH_STORAGE_KEY,
-        JSON.stringify({ isLoggedIn, currentUser, userRole })
+        JSON.stringify({ isLoggedIn, currentUser, currentUserId, userRole })
       );
     } catch {
-      // Ignore persistence failures to avoid breaking runtime behavior.
+      // Ignore persistence failures and keep runtime behavior intact.
     }
-  }, [isLoggedIn, currentUser, userRole]);
-
-  const showToast = (message, type = "success") => {
-    setToast({ message, type });
-  };
-
-  const hideToast = () => {
-    setToast(null);
-  };
+  }, [isLoggedIn, currentUser, currentUserId, userRole]);
 
   useEffect(() => {
     if (backendCheckStartedRef.current) return;
@@ -121,12 +140,16 @@ function App() {
       if (!active) return;
 
       if (!status.connected) {
+        setApiConnected(false);
         showToast("Backend not reachable. Running in frontend-only mode.", "warning");
         return;
       }
 
-      if (status.placeholderRoutes) {
-        showToast("Backend connected. Placeholder API detected, using local event data.", "info");
+      setApiConnected(true);
+
+      const loaded = await refreshEvents();
+      if (!loaded) {
+        showToast("Backend connected, but events sync failed. Using local cache.", "warning");
       }
     };
 
@@ -134,7 +157,7 @@ function App() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [refreshEvents, showToast]);
 
   const handleLogin = (user) => {
     const resolvedUsername = user?.username || user?.name || "user";
@@ -143,7 +166,11 @@ function App() {
 
     setIsLoggedIn(true);
     setCurrentUser(resolvedUsername);
+    setCurrentUserId(user?.id ?? null);
     setUserRole(resolvedRole);
+    if (apiConnected) {
+      refreshEvents();
+    }
     showToast(`Welcome, ${resolvedUsername}!`, "success");
   };
 
@@ -166,11 +193,12 @@ function App() {
     }
 
     return undefined;
-  }, [events, isLoggedIn]);
+  }, [events, isLoggedIn, showToast]);
 
   const handleLogout = () => {
     setIsLoggedIn(false);
     setCurrentUser(null);
+    setCurrentUserId(null);
     setUserRole(null);
     localStorage.removeItem(AUTH_STORAGE_KEY);
     showToast("Logged out successfully!", "success");
@@ -203,7 +231,10 @@ function App() {
                     events={events}
                     setEvents={setEvents}
                     currentUser={currentUser}
+                    currentUserId={currentUserId}
                     userRole={userRole}
+                    apiConnected={apiConnected}
+                    refreshEvents={refreshEvents}
                     showToast={showToast}
                   />
                 </ProtectedRoute>
@@ -218,7 +249,10 @@ function App() {
                   <CreateEvent
                     setEvents={setEvents}
                     currentUser={currentUser}
+                    currentUserId={currentUserId}
                     userRole={userRole}
+                    apiConnected={apiConnected}
+                    refreshEvents={refreshEvents}
                     showToast={showToast}
                   />
                 </ProtectedRoute>
@@ -232,7 +266,10 @@ function App() {
                     events={events}
                     setEvents={setEvents}
                     currentUser={currentUser}
+                    currentUserId={currentUserId}
                     userRole={userRole}
+                    apiConnected={apiConnected}
+                    refreshEvents={refreshEvents}
                     showToast={showToast}
                   />
                 </ProtectedRoute>

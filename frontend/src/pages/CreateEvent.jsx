@@ -1,8 +1,17 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import EventForm from "../components/EventForm";
+import { createEventInApi } from "../services/eventsApi";
 
-function CreateEvent({ setEvents, currentUser, userRole, showToast }) {
+function CreateEvent({
+  setEvents,
+  currentUser,
+  currentUserId,
+  userRole,
+  apiConnected,
+  refreshEvents,
+  showToast,
+}) {
   const navigate = useNavigate();
   const [errors, setErrors] = useState({});
 
@@ -50,7 +59,7 @@ function CreateEvent({ setEvents, currentUser, userRole, showToast }) {
     return newErrors;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     const validationErrors = validateForm();
@@ -62,6 +71,51 @@ function CreateEvent({ setEvents, currentUser, userRole, showToast }) {
     const normalizedMaxAttendees =
       formData.maxAttendees === "" ? "" : Number(formData.maxAttendees);
 
+    if (apiConnected) {
+      if (!currentUserId) {
+        showToast?.("Unable to identify current user for event creation", "error");
+        return;
+      }
+
+      try {
+        await createEventInApi({
+          title: formData.title,
+          description: formData.description,
+          location: formData.location,
+          date: formData.date,
+          time: formData.time,
+          category: formData.category,
+          maxAttendees: normalizedMaxAttendees,
+          creatorId: currentUserId,
+        });
+
+        const synced = await refreshEvents?.();
+        if (!synced) {
+          setEvents((prevEvents) => [
+            ...prevEvents,
+            {
+              id: Date.now(),
+              ...formData,
+              maxAttendees: normalizedMaxAttendees,
+              attendees: [],
+              createdBy: currentUser,
+              createdByRole: userRole || "user",
+            },
+          ]);
+        }
+
+        showToast?.(
+          `Event "${formData.title}" created on ${formData.date} at ${formData.time}`,
+          "success"
+        );
+        navigate("/home");
+        return;
+      } catch (error) {
+        showToast?.(error.message || "Failed to create event", "error");
+        return;
+      }
+    }
+
     const newEvent = {
       id: Date.now(),
       ...formData,
@@ -72,7 +126,6 @@ function CreateEvent({ setEvents, currentUser, userRole, showToast }) {
     };
 
     setEvents((prevEvents) => [...prevEvents, newEvent]);
-
     showToast?.(
       `Event "${newEvent.title}" created on ${newEvent.date} at ${newEvent.time}`,
       "success"

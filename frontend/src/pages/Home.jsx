@@ -1,15 +1,24 @@
 import { Link } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import Modal from "../components/Modal";
 import EventCard from "../components/EventCard";
+import { deleteEventInApi, upsertRsvpInApi } from "../services/eventsApi";
 
-function Home({ events, setEvents, currentUser, userRole, showToast }) {
+function Home({
+  events,
+  setEvents,
+  currentUser,
+  currentUserId,
+  userRole,
+  apiConnected,
+  refreshEvents,
+  showToast,
+}) {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
   const [date, setDate] = useState("");
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, eventId: null });
 
-  // Helper to convert string attendees to objects (backward compatibility)
   const normalizeAttendee = (attendee) => {
     if (typeof attendee === "string") {
       return { name: attendee, status: "going" };
@@ -17,37 +26,55 @@ function Home({ events, setEvents, currentUser, userRole, showToast }) {
     return attendee;
   };
 
-  const handleRSVP = (id, status) => {
+  const applyLocalRsvp = (id, status) => {
+    const updated = events.map((event) => {
+      if (event.id !== id) return event;
+
+      const existingIndex = event.attendees?.findIndex((attendee) => {
+        const normalized = normalizeAttendee(attendee);
+        return normalized.name === currentUser;
+      });
+
+      const newAttendees = [...(event.attendees || [])];
+      if (existingIndex >= 0) {
+        newAttendees[existingIndex] = { name: currentUser, status };
+      } else {
+        newAttendees.push({ name: currentUser, status });
+      }
+
+      return { ...event, attendees: newAttendees };
+    });
+
+    setEvents(updated);
+  };
+
+  const handleRSVP = async (id, status) => {
     if (userRole === "admin") {
       showToast?.("Admins cannot RSVP to events", "warning");
       return;
     }
 
-    if (!currentUser) {
+    if (!currentUser || !currentUserId) {
       showToast?.("Please log in to RSVP", "error");
       return;
     }
 
-    const updated = events.map((event) => {
-      if (event.id === id) {
-        const existingIndex = event.attendees?.findIndex((a) => {
-          const normalized = normalizeAttendee(a);
-          return normalized.name === currentUser;
-        });
-
-        const newAttendees = [...(event.attendees || [])];
-
-        if (existingIndex >= 0) {
-          newAttendees[existingIndex] = { name: currentUser, status };
-        } else {
-          newAttendees.push({ name: currentUser, status });
+    if (apiConnected) {
+      try {
+        await upsertRsvpInApi({ userId: currentUserId, eventId: id, status });
+        const synced = await refreshEvents?.();
+        if (!synced) {
+          applyLocalRsvp(id, status);
         }
-
-        return { ...event, attendees: newAttendees };
+        showToast?.(`Successfully marked as "${status}"!`, "success");
+        return;
+      } catch (error) {
+        showToast?.(error.message || "Failed to update RSVP", "error");
+        return;
       }
-      return event;
-    });
-    setEvents(updated);
+    }
+
+    applyLocalRsvp(id, status);
     showToast?.(`Successfully marked as "${status}"!`, "success");
   };
 
@@ -63,7 +90,7 @@ function Home({ events, setEvents, currentUser, userRole, showToast }) {
     setDeleteModal({ isOpen: true, eventId: id });
   };
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     const eventToDelete = events.find((event) => event.id === deleteModal.eventId);
     const canDelete = userRole === "admin" || eventToDelete?.createdBy === currentUser;
 
@@ -73,8 +100,34 @@ function Home({ events, setEvents, currentUser, userRole, showToast }) {
       return;
     }
 
-    const updated = events.filter((event) => event.id !== deleteModal.eventId);
-    setEvents(updated);
+    if (apiConnected) {
+      if (!currentUserId) {
+        showToast?.("User context missing for delete action", "error");
+        setDeleteModal({ isOpen: false, eventId: null });
+        return;
+      }
+
+      try {
+        await deleteEventInApi({
+          id: deleteModal.eventId,
+          creatorId: currentUserId,
+          requesterRole: userRole || "user",
+        });
+        const synced = await refreshEvents?.();
+        if (!synced) {
+          setEvents((prevEvents) => prevEvents.filter((event) => event.id !== deleteModal.eventId));
+        }
+        showToast?.("Event deleted successfully!", "success");
+      } catch (error) {
+        showToast?.(error.message || "Failed to delete event", "error");
+      } finally {
+        setDeleteModal({ isOpen: false, eventId: null });
+      }
+
+      return;
+    }
+
+    setEvents((prevEvents) => prevEvents.filter((event) => event.id !== deleteModal.eventId));
     showToast?.("Event deleted successfully!", "success");
     setDeleteModal({ isOpen: false, eventId: null });
   };

@@ -1,26 +1,45 @@
 const express = require("express");
-const router = express.Router();
 const zod = require("zod");
 const prisma = require("../pool");
 
+const router = express.Router();
+
+const rsvpStatusSchema = zod.enum(["going", "maybe", "notgoing"]);
+
+const registerSchema = zod.object({
+  userId: zod.coerce.number().int().positive("User ID is required"),
+  eventId: zod.coerce.number().int().positive("Event ID is required"),
+  status: rsvpStatusSchema.optional().default("going"),
+});
+
+const unregisterSchema = zod.object({
+  userId: zod.coerce.number().int().positive("User ID is required"),
+  eventId: zod.coerce.number().int().positive("Event ID is required"),
+});
+
 router.get("/", (req, res) => {
-  res.send("Registrations route working 🚀");
+  res.send("Registrations route working");
 });
 
 router.post("/register", async (req, res) => {
   try {
-    const { userId, eventId } = req.body || {};
-
-    if (!userId || !eventId) {
+    const validation = registerSchema.safeParse(req.body || {});
+    if (!validation.success) {
       return res.status(400).json({
-        error: "User ID and Event ID are required",
+        error: validation.error.issues.map((issue) => issue.message),
       });
     }
 
-    // Check if event exists
-    const event = await prisma.event.findUnique({
-      where: { id: eventId },
-    });
+    const { userId, eventId, status } = validation.data;
+
+    const [user, event] = await Promise.all([
+      prisma.user.findUnique({ where: { id: userId }, select: { id: true } }),
+      prisma.event.findUnique({ where: { id: eventId }, select: { id: true } }),
+    ]);
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
 
     if (!event) {
       return res.status(404).json({ error: "Event not found" });
@@ -33,65 +52,54 @@ router.post("/register", async (req, res) => {
           eventId,
         },
       },
-      update: {}, // do nothing if already exists
+      update: { status },
       create: {
         userId,
         eventId,
+        status,
       },
     });
 
-    res.status(201).json({
-      message: "Registration successful",
+    return res.status(200).json({
+      message: "RSVP updated successfully",
       data: registration,
     });
-
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Something went wrong" });
+    return res.status(500).json({ error: "Something went wrong while updating RSVP" });
   }
 });
 
-
 router.post("/unregister", async (req, res) => {
   try {
-    const { userId, eventId } = req.body || {};
-
-    if (!userId || !eventId) {
+    const validation = unregisterSchema.safeParse(req.body || {});
+    if (!validation.success) {
       return res.status(400).json({
-        error: "User ID and Event ID are required",
+        error: validation.error.issues.map((issue) => issue.message),
       });
     }
 
-    // Check if event exists
-    const event = await prisma.event.findUnique({
-      where: { id: eventId },
-    });
+    const { userId, eventId } = validation.data;
 
-    if (!event) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-
-    const registration = await prisma.registration.delete({
-     where: {
+    await prisma.registration.delete({
+      where: {
         userId_eventId: {
-          userId, 
+          userId,
           eventId,
         },
       },
     });
 
-
-    res.status(201).json({
-      message: "Unregistration successful",
+    return res.status(200).json({
+      message: "Registration removed successfully",
     });
-
   } catch (error) {
+    if (error?.code === "P2025") {
+      return res.status(404).json({ error: "Registration not found" });
+    }
     console.error(error);
-    res.status(500).json({ error: "Something went wrong" });
+    return res.status(500).json({ error: "Something went wrong while removing registration" });
   }
 });
-
-
-
 
 module.exports = router;

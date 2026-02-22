@@ -29,6 +29,7 @@ model Event {
   title         String         @db.VarChar(200)
   description   String?
   location      String?        @db.VarChar(200)
+  maxAttendees  Int?
   eventDate     DateTime       @db.Date
   eventTime     DateTime       @db.Time(6)
   createdAt     DateTime       @default(now())

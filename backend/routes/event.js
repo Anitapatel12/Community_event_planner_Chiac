@@ -1,205 +1,340 @@
 const express = require("express");
-const router = express.Router();
 const zod = require("zod");
 const prisma = require("../pool");
 
-const eventSchema = zod.object({
-  title: zod.string().min(1, "Title is required"),
+const router = express.Router();
 
-  description: zod.string().optional(),
+const USER_ROLE = "user";
+const ADMIN_ROLE = "admin";
 
-  location: zod.string().optional(),
+const eventInclude = {
+  category: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  creator: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+    },
+  },
+  registrations: {
+    select: {
+      status: true,
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+        },
+      },
+    },
+  },
+};
 
+const eventCreateSchema = zod.object({
+  title: zod.string().trim().min(1, "Title is required"),
+  description: zod.string().trim().optional(),
+  location: zod.string().trim().optional(),
   eventDate: zod.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"),
-
   eventTime: zod
-  .string()
-  .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Time must be in HH:mm format"),
-
-  creatorId: zod.number({
-    required_error: "Creator ID is required",
-  }),
-
-  categoryId: zod.number().optional(),
+    .string()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Time must be in HH:mm format"),
+  creatorId: zod.coerce.number().int().positive("Creator ID is required"),
+  category: zod.string().trim().min(1).max(100).optional(),
+  maxAttendees: zod.union([zod.null(), zod.coerce.number().int().nonnegative()]).optional(),
 });
 
-// GET /api/events - List all events with optional search and filters
+const eventEditSchema = zod.object({
+  id: zod.coerce.number().int().positive("Event ID is required"),
+  creatorId: zod.coerce.number().int().positive("Creator ID is required"),
+  requesterRole: zod.enum([USER_ROLE, ADMIN_ROLE]).optional().default(USER_ROLE),
+  title: zod.string().trim().min(1).optional(),
+  description: zod.string().trim().optional(),
+  location: zod.string().trim().optional(),
+  eventDate: zod.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  eventTime: zod
+    .string()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)$/)
+    .optional(),
+  category: zod.string().trim().min(1).max(100).optional(),
+  maxAttendees: zod.union([zod.null(), zod.coerce.number().int().nonnegative()]).optional(),
+});
+
+const eventDeleteSchema = zod.object({
+  id: zod.coerce.number().int().positive("Event ID is required"),
+  creatorId: zod.coerce.number().int().positive("Creator ID is required"),
+  requesterRole: zod.enum([USER_ROLE, ADMIN_ROLE]).optional().default(USER_ROLE),
+});
+
+async function resolveCategoryId(categoryName) {
+  if (!categoryName) return null;
+
+  const trimmed = String(categoryName).trim();
+  if (!trimmed) return null;
+
+  const existingCategory = await prisma.category.findFirst({
+    where: {
+      name: {
+        equals: trimmed,
+        mode: "insensitive",
+      },
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (existingCategory) {
+    return existingCategory.id;
+  }
+
+  const createdCategory = await prisma.category.create({
+    data: { name: trimmed },
+    select: { id: true },
+  });
+
+  return createdCategory.id;
+}
+
+function toEventTimeDate(eventDate, eventTime) {
+  return new Date(`${eventDate}T${eventTime}:00`);
+}
+
+// GET /api/events - list all events with optional search and filters
 router.get("/", async (req, res) => {
   try {
-    const { categoryId, date, search } = req.query;
-    let filter = {};
+    const { categoryId, category, date, search } = req.query;
+    const where = {};
 
-    // Filter by Category
     if (categoryId) {
-      filter.categoryId = parseInt(categoryId);
+      const parsedCategoryId = Number.parseInt(categoryId, 10);
+      if (!Number.isNaN(parsedCategoryId)) {
+        where.categoryId = parsedCategoryId;
+      }
     }
 
-    // Filter by Date
+    if (category) {
+      where.category = {
+        name: {
+          equals: String(category).trim(),
+          mode: "insensitive",
+        },
+      };
+    }
+
     if (date) {
-      filter.eventDate = new Date(date);
+      where.eventDate = new Date(String(date));
     }
 
-    // Search by Title or Description
     if (search) {
-      filter.OR = [
-        { title: { contains: search, mode: "insensitive" } },
-        { description: { contains: search, mode: "insensitive" } },
+      where.OR = [
+        { title: { contains: String(search), mode: "insensitive" } },
+        { description: { contains: String(search), mode: "insensitive" } },
+        { location: { contains: String(search), mode: "insensitive" } },
       ];
     }
 
     const events = await prisma.event.findMany({
-      where: filter,
-      include: {
-        category: true, // Includes category details if they exist
-        creator: {
-          select: { id: true, name: true, email: true }, // Include creator details
-        },
-      },
-      orderBy: {
-        eventDate: 'asc', // Show upcoming events first
-      }
+      where,
+      include: eventInclude,
+      orderBy: [{ eventDate: "asc" }, { eventTime: "asc" }],
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       message: "Events fetched successfully",
       data: events,
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Something went wrong while fetching events" });
+    return res.status(500).json({ error: "Something went wrong while fetching events" });
   }
 });
 
+// POST /api/events/create - create event
 router.post("/create", async (req, res) => {
   try {
-    const validation = eventSchema.safeParse(req.body);
-
+    const validation = eventCreateSchema.safeParse(req.body || {});
     if (!validation.success) {
       return res.status(400).json({
-        error: validation.error.issues.map(e => e.message),
+        error: validation.error.issues.map((issue) => issue.message),
       });
     }
 
-    const { eventDate, eventTime, ...rest } = validation.data;
+    const {
+      title,
+      description,
+      location,
+      eventDate,
+      eventTime,
+      creatorId,
+      category,
+      maxAttendees,
+    } = validation.data;
 
-    const combinedDateTime = new Date(`${eventDate}T${eventTime}`);
+    const creator = await prisma.user.findUnique({
+      where: { id: creatorId },
+      select: { id: true },
+    });
+
+    if (!creator) {
+      return res.status(404).json({ error: "Creator not found" });
+    }
+
+    const categoryId = await resolveCategoryId(category);
 
     const newEvent = await prisma.event.create({
       data: {
-        ...rest,
-        eventDate : new Date(eventDate),
-        eventTime: combinedDateTime, 
+        title,
+        description: description || "",
+        location: location || "",
+        eventDate: new Date(eventDate),
+        eventTime: toEventTimeDate(eventDate, eventTime),
+        creatorId,
+        categoryId,
+        maxAttendees: maxAttendees ?? null,
       },
+      include: eventInclude,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       message: "Event created successfully",
       data: newEvent,
     });
-
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Something went wrong" });
+    return res.status(500).json({ error: "Something went wrong while creating event" });
   }
 });
 
+// POST /api/events/editEvent - update event
 router.post("/editEvent", async (req, res) => {
   try {
-    const { id, creatorId, ...updateData } = req.body || {};
-
-    if (!id || !creatorId) {
-      return res.status(400).json({
-        error: "Event ID and Creator ID are required",
-      });
-    }
-
-    const validation = eventSchema.partial().safeParse(updateData);
-
+    const validation = eventEditSchema.safeParse(req.body || {});
     if (!validation.success) {
       return res.status(400).json({
-        error: validation.error.issues.map(e => e.message),
+        error: validation.error.issues.map((issue) => issue.message),
       });
     }
+
+    const {
+      id,
+      creatorId,
+      requesterRole,
+      title,
+      description,
+      location,
+      eventDate,
+      eventTime,
+      category,
+      maxAttendees,
+    } = validation.data;
 
     const existingEvent = await prisma.event.findUnique({
       where: { id },
+      select: {
+        id: true,
+        creatorId: true,
+        eventDate: true,
+      },
     });
 
-    if (!existingEvent || existingEvent.creatorId !== creatorId) {
-      return res.status(403).json({ error: "Not authorized" });
+    if (!existingEvent) {
+      return res.status(404).json({ error: "Event not found" });
     }
 
-    const data = validation.data;
-
-    let updatedFields = { ...data };
-
-    // If eventDate provided
-    if (data.eventDate) {
-      updatedFields.eventDate = new Date(data.eventDate);
+    const canEdit = requesterRole === ADMIN_ROLE || existingEvent.creatorId === creatorId;
+    if (!canEdit) {
+      return res.status(403).json({ error: "Not authorized to edit this event" });
     }
 
-    // If eventTime provided
-    if (data.eventTime) {
-      const baseDate = data.eventDate
-        ? new Date(data.eventDate)
-        : existingEvent.eventDate;
+    const updateData = {};
 
-      updatedFields.eventTime = new Date(
-        `${baseDate.toISOString().split("T")[0]}T${data.eventTime}`
-      );
+    if (title !== undefined) updateData.title = title;
+    if (description !== undefined) updateData.description = description;
+    if (location !== undefined) updateData.location = location;
+    if (eventDate !== undefined) updateData.eventDate = new Date(eventDate);
+    if (maxAttendees !== undefined) updateData.maxAttendees = maxAttendees;
+
+    if (category !== undefined) {
+      updateData.categoryId = await resolveCategoryId(category);
+    }
+
+    if (eventTime !== undefined) {
+      const baseDate = eventDate || existingEvent.eventDate.toISOString().split("T")[0];
+      updateData.eventTime = toEventTimeDate(baseDate, eventTime);
     }
 
     const updatedEvent = await prisma.event.update({
       where: { id },
-      data: updatedFields,
+      data: updateData,
+      include: eventInclude,
     });
 
-    res.json({
+    return res.status(200).json({
       message: "Event updated successfully",
       data: updatedEvent,
     });
-
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Something went wrong" });
+    return res.status(500).json({ error: "Something went wrong while updating event" });
   }
 });
 
+// DELETE /api/events/deleteEvent - delete event
 router.delete("/deleteEvent", async (req, res) => {
   try {
-    const { id, creatorId } = req.body || {}; 
-    if (!id || !creatorId) {
-      return res.status(400).json({ error: "Event ID and Creator ID are required" });
-    }   
+    const validation = eventDeleteSchema.safeParse(req.body || {});
+    if (!validation.success) {
+      return res.status(400).json({
+        error: validation.error.issues.map((issue) => issue.message),
+      });
+    }
+
+    const { id, creatorId, requesterRole } = validation.data;
+
     const existingEvent = await prisma.event.findUnique({
       where: { id },
+      select: {
+        id: true,
+        creatorId: true,
+      },
     });
 
-    if(!existingEvent || existingEvent.creatorId !== creatorId) {
-      return res.status(403).json({ error: "Not authorized" });
-    }   
+    if (!existingEvent) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+
+    const canDelete = requesterRole === ADMIN_ROLE || existingEvent.creatorId === creatorId;
+    if (!canDelete) {
+      return res.status(403).json({ error: "Not authorized to delete this event" });
+    }
 
     await prisma.event.delete({
       where: { id },
-    }); 
-    res.json({ message: "Event deleted successfully" });
+    });
+
+    return res.status(200).json({ message: "Event deleted successfully" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Something went wrong" });
-  } });
+    return res.status(500).json({ error: "Something went wrong while deleting event" });
+  }
+});
 
-// GET /api/events/:id/attendees - View attendee list for a specific event
+// GET /api/events/:id/attendees - view attendee list for a specific event
 router.get("/:id/attendees", async (req, res) => {
   try {
-    const eventId = parseInt(req.params.id);
-
-    if (isNaN(eventId)) {
-      return res.status(400).json({ error: "Invalid Event ID" });
+    const eventId = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(eventId)) {
+      return res.status(400).json({ error: "Invalid event ID" });
     }
 
-    // Find all registrations for this event and include the user details
     const attendees = await prisma.registration.findMany({
-      where: { eventId: eventId },
+      where: { eventId },
       include: {
         user: {
           select: {
@@ -209,19 +344,26 @@ router.get("/:id/attendees", async (req, res) => {
           },
         },
       },
+      orderBy: {
+        registeredAt: "asc",
+      },
     });
 
-    // Map through the registrations to just return the user objects
-    const attendeeList = attendees.map(registration => registration.user);
+    const attendeeList = attendees.map((registration) => ({
+      id: registration.user.id,
+      name: registration.user.name,
+      email: registration.user.email,
+      status: registration.status,
+    }));
 
-    res.status(200).json({
+    return res.status(200).json({
       message: "Attendees fetched successfully",
       data: attendeeList,
-      totalAttendees: attendeeList.length
+      totalAttendees: attendeeList.length,
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Something went wrong while fetching attendees" });
+    return res.status(500).json({ error: "Something went wrong while fetching attendees" });
   }
 });
 

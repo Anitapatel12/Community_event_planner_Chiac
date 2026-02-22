@@ -1,46 +1,61 @@
-import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import EventForm from "../components/EventForm";
+import { updateEventInApi } from "../services/eventsApi";
 
-function EditEvent({ events, setEvents, currentUser, userRole, showToast }) {
+function EditEvent({
+  events,
+  setEvents,
+  currentUser,
+  currentUserId,
+  userRole,
+  apiConnected,
+  refreshEvents,
+  showToast,
+}) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [errors, setErrors] = useState({});
 
-  const eventToEdit = events.find(e => e.id === Number(id));
-
-  const [formData, setFormData] = useState(eventToEdit || {
-    title: "",
-    date: "",
-    time: "",
-    location: "",
-    description: "",
-    category: "",
-    attendees: [],
-    maxAttendees: ""
-  });
-
+  const eventToEdit = events.find((event) => event.id === Number(id));
+  const [formData, setFormData] = useState(
+    eventToEdit || {
+      title: "",
+      date: "",
+      time: "",
+      location: "",
+      description: "",
+      category: "",
+      attendees: [],
+      maxAttendees: "",
+    }
+  );
 
   useEffect(() => {
-    const canEdit = userRole === "admin" || eventToEdit?.createdBy === currentUser;
-    if (eventToEdit && !canEdit) {
-      // prevent editing by users who do not own the event
+    if (!eventToEdit) {
+      showToast?.("Event not found", "error");
+      navigate("/home");
+      return;
+    }
+
+    const canEdit = userRole === "admin" || eventToEdit.createdBy === currentUser;
+    if (!canEdit) {
       showToast?.("You don't have permission to edit this event", "error");
       navigate("/home");
     }
   }, [eventToEdit, currentUser, userRole, navigate, showToast]);
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-    // Clear error when user starts typing
+    setFormData((prev) => ({
+      ...prev,
+      [e.target.name]: e.target.value,
+    }));
+
     if (errors[e.target.name]) {
-      setErrors({
-        ...errors,
-        [e.target.name]: ""
-      });
+      setErrors((prev) => ({
+        ...prev,
+        [e.target.name]: "",
+      }));
     }
   };
 
@@ -61,7 +76,7 @@ function EditEvent({ events, setEvents, currentUser, userRole, showToast }) {
     return newErrors;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     const validationErrors = validateForm();
@@ -73,13 +88,54 @@ function EditEvent({ events, setEvents, currentUser, userRole, showToast }) {
     const normalizedMaxAttendees =
       formData.maxAttendees === "" ? "" : Number(formData.maxAttendees);
 
-    const updated = events.map(event =>
-      event.id === Number(id)
-        ? { ...formData, maxAttendees: normalizedMaxAttendees }
-        : event
+    if (apiConnected) {
+      if (!currentUserId) {
+        showToast?.("Unable to identify current user for event update", "error");
+        return;
+      }
+
+      try {
+        await updateEventInApi({
+          id: Number(id),
+          creatorId: currentUserId,
+          requesterRole: userRole || "user",
+          title: formData.title,
+          description: formData.description,
+          location: formData.location,
+          date: formData.date,
+          time: formData.time,
+          category: formData.category,
+          maxAttendees: normalizedMaxAttendees,
+        });
+
+        const synced = await refreshEvents?.();
+        if (!synced) {
+          setEvents((prevEvents) =>
+            prevEvents.map((event) =>
+              event.id === Number(id)
+                ? { ...formData, id: Number(id), maxAttendees: normalizedMaxAttendees }
+                : event
+            )
+          );
+        }
+
+        showToast?.("Event updated successfully!", "success");
+        navigate("/home");
+        return;
+      } catch (error) {
+        showToast?.(error.message || "Failed to update event", "error");
+        return;
+      }
+    }
+
+    setEvents((prevEvents) =>
+      prevEvents.map((event) =>
+        event.id === Number(id)
+          ? { ...formData, id: Number(id), maxAttendees: normalizedMaxAttendees }
+          : event
+      )
     );
 
-    setEvents(updated);
     showToast?.("Event updated successfully!", "success");
     navigate("/home");
   };
