@@ -40,7 +40,7 @@ npm start
 ```
 
 `npm start` now performs startup preflight checks and then starts both services with conflict-safe ports:
-- validates Node.js version (`>=18`)
+- validates Node.js version (`>18`)
 - validates `DATABASE_URL` is present and looks like a PostgreSQL URL
 - chooses a free backend port (starting at `5001`)
 - chooses a free frontend port (starting at `3000`)
