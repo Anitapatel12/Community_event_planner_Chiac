@@ -7,6 +7,14 @@ const DEFAULT_BACKEND_PORT = 5001;
 const DEFAULT_FRONTEND_PORT = 3000;
 const MIN_NODE_MAJOR = 18;
 const MAX_PORT_ATTEMPTS = 25;
+const DATABASE_ENV_KEYS = [
+  "DATABASE_URL",
+  "POSTGRES_URL",
+  "POSTGRES_PRISMA_URL",
+  "POSTGRES_URL_NON_POOLING",
+  "POSTGRESQL_URL",
+  "NEON_DATABASE_URL",
+];
 
 const rootDir = process.cwd();
 const backendEnvPath = path.join(rootDir, "backend", ".env");
@@ -77,10 +85,26 @@ function ensureNodeVersion() {
 }
 
 function resolveDatabaseUrl(runtimeEnv, backendEnv) {
-  const resolved = String(runtimeEnv.DATABASE_URL || backendEnv.DATABASE_URL || "").trim();
+  let resolved = "";
+  for (const key of DATABASE_ENV_KEYS) {
+    const runtimeValue = String(runtimeEnv[key] || "").trim();
+    if (runtimeValue) {
+      resolved = runtimeValue;
+      break;
+    }
+
+    const backendValue = String(backendEnv[key] || "").trim();
+    if (backendValue) {
+      resolved = backendValue;
+      break;
+    }
+  }
+
   if (!resolved) {
     console.error(
-      "[runner] DATABASE_URL is missing. Set it in backend/.env or your shell environment."
+      `[runner] Database URL is missing. Set one of ${DATABASE_ENV_KEYS.join(
+        ", "
+      )} in backend/.env or your shell environment.`
     );
     process.exit(1);
   }
@@ -95,6 +119,8 @@ function resolveDatabaseUrl(runtimeEnv, backendEnv) {
     console.error(`[runner] DATABASE_URL is invalid: ${error.message}`);
     process.exit(1);
   }
+
+  return resolved;
 }
 
 function canListen(port) {
@@ -193,7 +219,7 @@ async function main() {
   ensureFrontendRuntime();
 
   const backendEnv = loadBackendEnvValues();
-  resolveDatabaseUrl(process.env, backendEnv);
+  const databaseUrl = resolveDatabaseUrl(process.env, backendEnv);
 
   const preferredBackendPort = parsePort(
     process.env.PORT || backendEnv.PORT,
@@ -231,6 +257,7 @@ async function main() {
     cwd: rootDir,
     env: {
       ...process.env,
+      DATABASE_URL: databaseUrl,
       PORT: String(backendPort),
       FRONTEND_URL: frontendOrigin,
     },

@@ -8,6 +8,14 @@ require("dotenv").config({ path: path.resolve(__dirname, ".env") });
 
 const app = express();
 const frontendOrigin = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
+const DATABASE_ENV_KEYS = [
+  "DATABASE_URL",
+  "POSTGRES_URL",
+  "POSTGRES_PRISMA_URL",
+  "POSTGRES_URL_NON_POOLING",
+  "POSTGRESQL_URL",
+  "NEON_DATABASE_URL",
+];
 
 // Middleware
 app.use(
@@ -55,9 +63,17 @@ function resolvePort(value) {
 }
 
 function validateDatabaseUrl() {
-  const rawDatabaseUrl = String(process.env.DATABASE_URL || "").trim();
+  let rawDatabaseUrl = "";
+  for (const key of DATABASE_ENV_KEYS) {
+    const value = String(process.env[key] || "").trim();
+    if (value) {
+      rawDatabaseUrl = value;
+      break;
+    }
+  }
+
   if (!rawDatabaseUrl) {
-    throw new Error("DATABASE_URL is missing. Set it in backend/.env.");
+    throw new Error(`Database URL is missing. Set one of ${DATABASE_ENV_KEYS.join(", ")} in backend/.env.`);
   }
 
   let parsedUrl;
@@ -70,6 +86,8 @@ function validateDatabaseUrl() {
   if (!["postgres:", "postgresql:"].includes(parsedUrl.protocol)) {
     throw new Error(`DATABASE_URL protocol must be postgres/postgresql, got "${parsedUrl.protocol}".`);
   }
+
+  process.env.DATABASE_URL = rawDatabaseUrl;
 }
 
 async function startServer() {
