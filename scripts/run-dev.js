@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const net = require("node:net");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 
 const DEFAULT_BACKEND_PORT = 5001;
 const DEFAULT_FRONTEND_PORT = 3000;
@@ -149,10 +149,43 @@ function ensureFrontendRuntime() {
     return;
   }
 
-  console.error(
-    "[runner] Frontend dependencies are missing. Run \"npm install --prefix frontend\" first."
+  console.log(
+    "[runner] Frontend dependencies are missing. Installing with \"npm install --prefix frontend\"..."
   );
-  process.exit(1);
+
+  const npmExecPath = process.env.npm_execpath;
+  const installArgs = ["install", "--prefix", "frontend"];
+  const installResult =
+    npmExecPath && fs.existsSync(npmExecPath)
+      ? spawnSync(process.execPath, [npmExecPath, ...installArgs], {
+          cwd: rootDir,
+          env: process.env,
+          stdio: "inherit",
+        })
+      : spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", installArgs, {
+          cwd: rootDir,
+          env: process.env,
+          stdio: "inherit",
+        });
+
+  if (installResult.error) {
+    console.error("[runner] Failed to install frontend dependencies:", installResult.error.message);
+    process.exit(1);
+  }
+
+  if (installResult.status !== 0) {
+    console.error(
+      `[runner] Frontend dependency installation failed with exit code ${installResult.status}.`
+    );
+    process.exit(installResult.status || 1);
+  }
+
+  if (!fs.existsSync(viteBinPath)) {
+    console.error(
+      "[runner] Frontend dependencies still missing after install. Re-run \"npm install --prefix frontend\"."
+    );
+    process.exit(1);
+  }
 }
 
 async function main() {
